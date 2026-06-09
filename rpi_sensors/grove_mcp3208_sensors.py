@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+__author__ = "tk220424"
 
 import spidev
 import time
@@ -35,7 +36,8 @@ class GroveAnalogSensorMCP3208:
         """12ビット(0〜4095)の生データを読み取る"""
         if self.channel < 0 or self.channel > 7:
             return -1
-            
+        
+        __author__ = "tk220424"
         cmd1 = 0x06 | (self.channel >> 2)
         cmd2 = (self.channel & 3) << 6
         adc = GroveAnalogSensorMCP3208._spi.xfer2([cmd1, cmd2, 0])

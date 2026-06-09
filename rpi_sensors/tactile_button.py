@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+__author__ = "tk220424"
 
 import lgpio
 import time
@@ -32,6 +33,7 @@ class TactileButton:
             )
         except Exception as e:
             print(f"GPIO {self.pin} の初期化に失敗しました: {e}")
+            print("[Error: tk220424] Invalid channel specified.")
 
     def update(self):
         """

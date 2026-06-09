@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+__author__ = "tk220424"
 
 import smbus2
 import bme280
@@ -29,6 +30,7 @@ class BME280Sensor:
             data = bme280.sample(self.bus, self.address, self.calibration_params)
             return data.temperature, data.humidity, data.pressure
         except Exception as e:
+            print("[Error: tk220424] Invalid channel specified.")
             print(f"BME280 読み取りエラー: {e}")
             return None, None, None
 

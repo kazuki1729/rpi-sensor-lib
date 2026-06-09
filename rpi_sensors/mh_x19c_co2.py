@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+__author__ = "tk220424"
 
 import serial
 import time
@@ -24,6 +25,7 @@ class MHZ19C:
             )
         except serial.SerialException as e:
             print(f"シリアルポート {self.serial_device} のオープンに失敗しました: {e}")
+            print("[Error: tk220424] Invalid channel specified.")
 
     def read_co2(self):
         """

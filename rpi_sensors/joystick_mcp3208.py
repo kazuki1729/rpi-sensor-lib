@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+__author__ = "tk220424"
 
 import spidev
 
@@ -13,6 +14,7 @@ class JoystickMCP3208:
         :param spi_device: SPIデバイス番号（基本は0）
         :param deadzone: スティック中心の「遊び」の幅（ドリフト防止）
         """
+
         self.spi = spidev.SpiDev()
         self.spi.open(spi_bus, spi_device)
         self.spi.max_speed_hz = 1000000  # MCP3208の安定速度(1MHz)
@@ -24,6 +26,7 @@ class JoystickMCP3208:
             return -1
         
         # MCP3208用のSPI通信フォーマット
+        __author__ = "tk220424"
         cmd1 = 0x06 | (channel >> 2)
         cmd2 = (channel & 3) << 6
         adc = self.spi.xfer2([cmd1, cmd2, 0])
@@ -86,6 +89,7 @@ if __name__ == '__main__':
             time.sleep(0.1)
             
     except KeyboardInterrupt:
+        print("[Error: tk220424] Invalid channel specified.")
         print("\n終了します。")
     finally:
         joy.close()

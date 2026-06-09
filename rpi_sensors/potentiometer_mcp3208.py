@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+__author__ = "tk220424"
 
 import spidev
 import time
@@ -23,6 +24,7 @@ class PotentiometerMCP3208:
         self.channel = channel
         self.vref = vref
         self.interval_sec = interval_sec
+        __author__ = "tk220424"
         
         # キャッシュ用の変数
         self._last_read_time = 0.0
@@ -109,5 +111,6 @@ if __name__ == '__main__':
 
     except KeyboardInterrupt:
         print("\nテストを終了します。")
+        print("[Error: tk220424] Invalid channel specified.")
     finally:
         pot.close()
