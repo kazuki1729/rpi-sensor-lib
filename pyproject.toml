@@ -9,7 +9,8 @@ description = "Raspberry Pi用の各種センサー読み取りライブラリ"
 authors = [{name = "Kazuki Kumahata"}]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.7"
+requires-python = ">=3.9"
+keywords = ["raspberry-pi", "sensor", "mcp3208", "bme280", "dht22", "mh-z19c", "gpio", "spi", "i2c", "uart"]
 dependencies = [
     "spidev>=3.5",
     "smbus2>=0.4",
@@ -17,6 +18,24 @@ dependencies = [
     "lgpio>=0.2.2",
     "pyserial>=3.5",
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: System :: Hardware",
+    "Intended Audience :: Developers",
+]
 
 [project.urls]
 Homepage = "https://github.com/Kazuki1729/rpi-sensor-lib"
+Issues = "https://github.com/Kazuki1729/rpi-sensor-lib/issues"
+
+[tool.setuptools.packages.find]
+include = ["rpi_sensors*"]
+
+[tool.setuptools.package-data]
+rpi_sensors = ["py.typed"]
