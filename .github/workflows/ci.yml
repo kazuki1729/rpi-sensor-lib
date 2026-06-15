@@ -1,0 +1,21 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install build & lint tools
+        run: pip install build flake8
+      - name: Syntax check (compile)
+        run: python -m compileall rpi_sensors
+      - name: Lint
+        run: flake8 rpi_sensors --select=E9,F63,F7,F82 --show-source
+      - name: Build package
+        run: python -m build
