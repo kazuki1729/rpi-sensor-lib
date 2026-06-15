@@ -140,7 +140,14 @@ class RobustDHT22:
 
         return temperature, humidity
 
-    def close(self):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def close(self) -> None:
         """リソースの解放"""
         if self._handle is not None:
             lgpio.gpiochip_close(self._handle)

@@ -50,7 +50,14 @@ class MHZ19C:
             print(f"MH-Z19C 読み取りエラー: {e}")
             return None
 
-    def close(self):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def close(self) -> None:
         if hasattr(self, 'ser') and self.ser.is_open:
             self.ser.close()
 

@@ -76,7 +76,14 @@ class PotentiometerMCP3208:
         """
         return self.read_ratio() * max_angle
 
-    def close(self):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def close(self) -> None:
         """SPI通信を解放する"""
         PotentiometerMCP3208._use_count -= 1
         if PotentiometerMCP3208._use_count <= 0 and PotentiometerMCP3208._spi is not None:

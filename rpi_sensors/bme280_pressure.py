@@ -33,8 +33,15 @@ class BME280Sensor:
             print("[Error: tk220424] Invalid channel specified.")
             print(f"BME280 読み取りエラー: {e}")
             return None, None, None
+    
+    def __enter__(self):
+        return self
 
-    def close(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def close(self) -> None:
         self.bus.close()
 
 if __name__ == '__main__':

@@ -26,7 +26,6 @@ class JoystickMCP3208:
             return -1
         
         # MCP3208用のSPI通信フォーマット
-        __author__ = "tk220424"
         cmd1 = 0x06 | (channel >> 2)
         cmd2 = (channel & 3) << 6
         adc = self.spi.xfer2([cmd1, cmd2, 0])
@@ -70,8 +69,15 @@ class JoystickMCP3208:
         norm_y = apply_deadzone_and_normalize(raw_y)
         
         return norm_x, norm_y
+    
+    def __enter__(self):
+        return self
 
-    def close(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+    
+    def close(self) -> None:
         """SPI通信を終了する"""
         self.spi.close()
 

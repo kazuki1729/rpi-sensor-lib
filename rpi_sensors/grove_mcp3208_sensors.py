@@ -53,8 +53,15 @@ class GroveAnalogSensorMCP3208:
     def read_ratio(self):
         """0.0 (最小) 〜 1.0 (最大) の割合で返す（計算や閾値設定に便利です）"""
         return self.read_raw() / 4095.0
+    
+    def __enter__(self):
+        return self
 
-    def close(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def close(self) -> None:
         """インスタンス破棄時に呼び出す。最後の1つが閉じられた時のみSPIを解放する"""
         GroveAnalogSensorMCP3208._use_count -= 1
         if GroveAnalogSensorMCP3208._use_count <= 0 and GroveAnalogSensorMCP3208._spi is not None:

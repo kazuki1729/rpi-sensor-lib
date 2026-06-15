@@ -66,6 +66,13 @@ class TactileButton:
             current_held_time = current_time - self.press_start_time
 
         return just_pressed, released_duration, current_held_time
+    
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
     def close(self):
         TactileButton._use_count -= 1
