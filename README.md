@@ -1,5 +1,28 @@
 # rpi_sensors
 
+![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python&logoColor=white)
+![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-supported-c51a4a?logo=raspberrypi&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+
+**Raspberry Pi に接続した各種センサー（温湿度・気圧・CO2・照度・アナログ入力など）を、数行のコードで読み取れる Python ライブラリです。**
+オブジェクト指向で設計しているので、センサーが変わっても同じ書き方でデータを取得できます。
+
+<!-- ↓ 実機の写真や、取得データのグラフ画像を入れると一気に伝わります -->
+![動作の様子](docs/demo.jpg)
+
+## ✨ 特徴
+
+- 🧩 **主要センサーに対応** — BME280 / DHT22 / MH-Z19C(CO2) / MCP3208(ADC) など
+- 🪶 **数行で読み取り** — 面倒な初期化やプロトコル処理は内部で吸収
+- 🔁 **統一インターフェース** — 複数のセンサーを同じ書き方で扱える
+- 🪪 **MIT ライセンス** — 自由に利用・改変できます
+
+## 📈 こんなことができます
+
+- 室内の温度・湿度・CO2 を定期的に記録（CSVログ）
+- 取得データのグラフ化（温度推移の可視化）
+- 自作IoT・研究・実験のデータ収集基盤として
+
 Raspberry Piに接続された各種センサーやアナログ入出力（ADC）モジュールを、オブジェクト指向でクリーンかつ簡単に操作するためのPythonライブラリです。
 
 チャタリング対策済みの物理ボタン、SPI経由のA/Dコンバータ（MCP3208）を用いたアナログセンサー（照度・音・ジョイスティック・半固定抵抗）、I2C接続の温湿度・気圧センサー（BME280）、GPIO直接駆動の温湿度センサー（DHT22）、UART接続のCO2センサー（MH-Z19C）に幅広く対応しています。環境データの取得からMariaDB等へのロギングといった、IoTシステム開発のベースとして最適です。
