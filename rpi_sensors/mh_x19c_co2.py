@@ -2,18 +2,32 @@
 # -*- coding: utf-8 -*-
 __author__ = "tk220424"
 
-import serial
 import time
+
+from . import _pi4gpio_backend
 
 class MHZ19C:
     """
     MH-Z19C CO2センサ読み取りクラス (UART接続)
     ※事前に pip install pyserial が必要です。
+
+    環境変数RPI_SENSOR_BACKEND（direct|pi4gpio、デフォルトdirect）で
+    ハードウェアアクセス経路を切り替えられる（pi4gpioプロジェクトの
+    MIGRATION_PLAN.md参照）。pi4gpioモードでは`serial_device`引数は
+    使わず、pi4gpiodの命名規約に従いポート0（`/dev/ttyS0`）に固定する
+    （このPiにはUARTが1系統しか無いため）。
     """
     def __init__(self, serial_device='/dev/serial0', baudrate=9600):
         self.serial_device = serial_device
         self.baudrate = baudrate
-        
+        self.backend = _pi4gpio_backend.get_backend()
+
+        if self.backend == "pi4gpio":
+            client = _pi4gpio_backend.get_pi4gpio_client()
+            self.ser = _pi4gpio_backend.Pi4gpioSerialShim(client, port=0, baud_rate=baudrate)
+            return
+
+        import serial
         try:
             self.ser = serial.Serial(
                 port=self.serial_device,

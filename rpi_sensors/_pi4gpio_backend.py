@@ -116,3 +116,32 @@ class Pi4gpioSpiTransferShim:
 
     def close(self) -> None:
         self._client.spi_release(self._bus, self._chip_select)
+
+
+class Pi4gpioSerialShim:
+    """`pyserial`（`serial.Serial`）と同じインターフェースを、pi4gpioクライアント
+    経由で提供するアダプタ。`mh_x19c_co2.py`が実際に使う`write()`/`read()`/
+    `close()`/`is_open`のみ実装している。
+
+    pyserialの`port`パラメータ（例: `'/dev/serial0'`）はデバイスパス文字列
+    だが、pi4gpiodの命名規約（`port`番号→`/dev/ttyS{port}`、
+    `socket.rs`参照）ではポート番号を使う。このPiにはUARTが1系統
+    （`/dev/ttyS0`）しか無いため、呼び出し側でポート番号を直接指定する。
+    """
+
+    def __init__(self, client, port: int, baud_rate: int):
+        self._client = client
+        self._port = port
+        self._baud_rate = baud_rate
+        self.is_open = True
+
+    def write(self, data: bytes) -> int:
+        self._client.uart_write(self._port, self._baud_rate, data)
+        return len(data)
+
+    def read(self, length: int) -> bytes:
+        return self._client.uart_read(self._port, self._baud_rate, length)
+
+    def close(self) -> None:
+        self._client.uart_release(self._port, self._baud_rate)
+        self.is_open = False
