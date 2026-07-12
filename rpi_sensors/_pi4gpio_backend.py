@@ -53,3 +53,43 @@ def get_pi4gpio_client():
         _shared_client = Pi4gpioClient(socket_path=socket_path)
         _shared_client.connect()
     return _shared_client
+
+
+class Pi4gpioSMBusShim:
+    """`smbus2.SMBus`と同じインターフェースを、pi4gpioクライアント経由で
+    提供するアダプタ。`smbus2.SMBus`の全メソッドは実装しておらず、
+    `bme280`パッケージ（`bme280/__init__.py`・`bme280/reader.py`）が実際に
+    呼び出す4つ（`write_byte_data`/`read_byte_data`/`read_word_data`/
+    `read_i2c_block_data`）のみに絞っている。他のI2Cセンサーで追加の
+    メソッドが必要になったら、その時点で拡張する。
+
+    `smbus2.SMBus(port)`のように`port`（I2Cバス番号）をコンストラクタで
+    固定し、以降は`smbus2`と同じシグネチャ（`i2c_addr`が呼び出しごとの
+    引数）で呼べる。
+    """
+
+    def __init__(self, client, bus: int):
+        self._client = client
+        self._bus = bus
+
+    def write_byte_data(self, i2c_addr: int, register: int, value: int) -> None:
+        self._client.i2c_write(self._bus, i2c_addr, bytes([register, value]))
+
+    def read_byte_data(self, i2c_addr: int, register: int) -> int:
+        data = self._client.i2c_write_read(self._bus, i2c_addr, bytes([register]), 1)
+        return data[0]
+
+    def read_word_data(self, i2c_addr: int, register: int) -> int:
+        # SMBus Read Wordはリトルエンディアン（下位バイトが先）で送られてくる
+        # （bme280/reader.pyのコメント「default is little endian」参照）。
+        data = self._client.i2c_write_read(self._bus, i2c_addr, bytes([register]), 2)
+        return data[0] | (data[1] << 8)
+
+    def close(self) -> None:
+        """`smbus2.SMBus.close()`と同じインターフェース。バスのロックのみ
+        解放し、プロセス共有の`Pi4gpioClient`接続自体は閉じない。"""
+        self._client.i2c_release(self._bus)
+
+    def read_i2c_block_data(self, i2c_addr: int, register: int, length: int) -> list:
+        data = self._client.i2c_write_read(self._bus, i2c_addr, bytes([register]), length)
+        return list(data)
