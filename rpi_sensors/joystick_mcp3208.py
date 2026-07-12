@@ -2,11 +2,15 @@
 # -*- coding: utf-8 -*-
 __author__ = "tk220424"
 
-import spidev
+from . import _pi4gpio_backend
 
 class JoystickMCP3208:
     """
     MCP3208経由でアナログジョイスティックを制御する汎用クラス
+
+    環境変数RPI_SENSOR_BACKEND（direct|pi4gpio、デフォルトdirect）で
+    ハードウェアアクセス経路を切り替えられる（pi4gpioプロジェクトの
+    MIGRATION_PLAN.md参照）。
     """
     def __init__(self, spi_bus=0, spi_device=0, deadzone=150):
         """
@@ -14,10 +18,14 @@ class JoystickMCP3208:
         :param spi_device: SPIデバイス番号（基本は0）
         :param deadzone: スティック中心の「遊び」の幅（ドリフト防止）
         """
-
-        self.spi = spidev.SpiDev()
-        self.spi.open(spi_bus, spi_device)
-        self.spi.max_speed_hz = 1000000  # MCP3208の安定速度(1MHz)
+        if _pi4gpio_backend.get_backend() == "pi4gpio":
+            client = _pi4gpio_backend.get_pi4gpio_client()
+            self.spi = _pi4gpio_backend.Pi4gpioSpiTransferShim(client, spi_bus, spi_device)
+        else:
+            import spidev
+            self.spi = spidev.SpiDev()
+            self.spi.open(spi_bus, spi_device)
+            self.spi.max_speed_hz = 1000000  # MCP3208の安定速度(1MHz)
         self.deadzone = deadzone
 
     def _read_adc(self, channel):

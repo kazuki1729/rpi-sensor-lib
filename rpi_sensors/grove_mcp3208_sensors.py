@@ -2,14 +2,21 @@
 # -*- coding: utf-8 -*-
 __author__ = "tk220424"
 
-import spidev
 import time
+
+from . import _pi4gpio_backend
 
 class GroveAnalogSensorMCP3208:
     """
     MCP3208を経由してアナログセンサを読み取るための共通ベースクラス。
     複数のセンサ（インスタンス）を作成しても、SPI通信のコネクションを
     クラス変数で共有し、リソースを安全に管理します。
+
+    環境変数RPI_SENSOR_BACKEND（direct|pi4gpio、デフォルトdirect）で
+    ハードウェアアクセス経路を切り替えられる（pi4gpioプロジェクトの
+    MIGRATION_PLAN.md参照）。pi4gpioモードでは`_pi4gpio_backend.
+    Pi4gpioSpiTransferShim`がspidev.SpiDevと同じ`xfer2()`インターフェース
+    を提供するため、read_raw()自体は変更不要。
     """
     _spi = None
     _use_count = 0
@@ -23,13 +30,20 @@ class GroveAnalogSensorMCP3208:
         """
         self.channel = channel
         self.vref = vref
-        
+
         # 初回インスタンス化時のみSPIを開く（tactile_button.pyの設計を踏襲）
         if GroveAnalogSensorMCP3208._spi is None:
-            GroveAnalogSensorMCP3208._spi = spidev.SpiDev()
-            GroveAnalogSensorMCP3208._spi.open(spi_bus, spi_device)
-            GroveAnalogSensorMCP3208._spi.max_speed_hz = 1000000
-        
+            if _pi4gpio_backend.get_backend() == "pi4gpio":
+                client = _pi4gpio_backend.get_pi4gpio_client()
+                GroveAnalogSensorMCP3208._spi = _pi4gpio_backend.Pi4gpioSpiTransferShim(
+                    client, spi_bus, spi_device
+                )
+            else:
+                import spidev
+                GroveAnalogSensorMCP3208._spi = spidev.SpiDev()
+                GroveAnalogSensorMCP3208._spi.open(spi_bus, spi_device)
+                GroveAnalogSensorMCP3208._spi.max_speed_hz = 1000000
+
         GroveAnalogSensorMCP3208._use_count += 1
 
     def read_raw(self):

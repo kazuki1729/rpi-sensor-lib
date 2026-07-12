@@ -93,3 +93,26 @@ class Pi4gpioSMBusShim:
     def read_i2c_block_data(self, i2c_addr: int, register: int, length: int) -> list:
         data = self._client.i2c_write_read(self._bus, i2c_addr, bytes([register]), length)
         return list(data)
+
+
+class Pi4gpioSpiTransferShim:
+    """`spidev.SpiDev`と同じインターフェースを、pi4gpioクライアント経由で
+    提供するアダプタ。MCP3208系センサー（`grove_mcp3208_sensors.py`・
+    `joystick_mcp3208.py`・`potentiometer_mcp3208.py`）は`xfer2()`のみを
+    使うため、それ以外のspidev属性/メソッド（`mode`・`bits_per_word`等）は
+    実装していない。`spidev.SpiDev()`＋`.open(bus, device)`という2段階の
+    構築とは異なり、コンストラクタで`bus`/`chip_select`を直接指定する
+    （呼び出し側の`xfer2()`呼び出し自体は変更不要）。
+    """
+
+    def __init__(self, client, bus: int, chip_select: int):
+        self._client = client
+        self._bus = bus
+        self._chip_select = chip_select
+
+    def xfer2(self, data) -> list:
+        result = self._client.spi_transfer(self._bus, self._chip_select, bytes(data))
+        return list(result)
+
+    def close(self) -> None:
+        self._client.spi_release(self._bus, self._chip_select)

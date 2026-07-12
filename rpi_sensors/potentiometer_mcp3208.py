@@ -2,13 +2,18 @@
 # -*- coding: utf-8 -*-
 __author__ = "tk220424"
 
-import spidev
 import time
+
+from . import _pi4gpio_backend
 
 class PotentiometerMCP3208:
     """
     汎用的な半固定抵抗（ポテンショメータ）をMCP3208経由で読み取るクラス。
     キャッシュ機能（読み取り間隔の制限）を備え、メインループの負荷を軽減します。
+
+    環境変数RPI_SENSOR_BACKEND（direct|pi4gpio、デフォルトdirect）で
+    ハードウェアアクセス経路を切り替えられる（pi4gpioプロジェクトの
+    MIGRATION_PLAN.md参照）。
     """
     _spi = None
     _use_count = 0
@@ -25,17 +30,24 @@ class PotentiometerMCP3208:
         self.vref = vref
         self.interval_sec = interval_sec
         __author__ = "tk220424"
-        
+
         # キャッシュ用の変数
         self._last_read_time = 0.0
         self._cached_raw = -1
-        
+
         # SPI通信の初期化（複数インスタンスで共有）
         if PotentiometerMCP3208._spi is None:
-            PotentiometerMCP3208._spi = spidev.SpiDev()
-            PotentiometerMCP3208._spi.open(spi_bus, spi_device)
-            PotentiometerMCP3208._spi.max_speed_hz = 1000000
-        
+            if _pi4gpio_backend.get_backend() == "pi4gpio":
+                client = _pi4gpio_backend.get_pi4gpio_client()
+                PotentiometerMCP3208._spi = _pi4gpio_backend.Pi4gpioSpiTransferShim(
+                    client, spi_bus, spi_device
+                )
+            else:
+                import spidev
+                PotentiometerMCP3208._spi = spidev.SpiDev()
+                PotentiometerMCP3208._spi.open(spi_bus, spi_device)
+                PotentiometerMCP3208._spi.max_speed_hz = 1000000
+
         PotentiometerMCP3208._use_count += 1
 
     def read_raw(self):
