@@ -7,7 +7,7 @@ from .mh_x19c_co2 import MHZ19C
 from .tactile_button import TactileButton
 from .robust_dht22 import RobustDHT22, DHT22ReadError
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     "GroveLightSensor", "GroveSoundSensor", "JoystickMCP3208",
     "PotentiometerMCP3208", "TactileButton", "RobustDHT22",
