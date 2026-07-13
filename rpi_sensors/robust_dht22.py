@@ -30,6 +30,15 @@ def _decode_dht22_edges(edges):
     解放時のrisingエッジが先頭に含まれていても（実機検証で、プルアップの
     強さによって検出されたりされなかったりすることを確認済み）、状態1は
     「LOWを待つ」だけなので無視され、影響しない。
+
+    実機検証で判明（2026-07-13、pi4gpioリポジトリのVERIFICATION_LOG.md）:
+    このセンサー個体では、40ビット目の送信終了を告げる最後のfallingエッジが
+    観測されないことがある（Tier 1の生レベル読み取りで直接確認しても
+    実際にHIGHのまま——カーネルの取りこぼしではなく、電気的に本当に
+    遷移が来ていない）。この場合、40ビット目だけHIGH区間長を測れず
+    `bit_durations`が39個で打ち切られる。40ビット目（チェックサム
+    バイトの最下位ビット）は、他の39ビットから計算できるチェックサムの
+    整合性から一意に逆算できるため、タイミング測定に頼らず算術的に復元する。
     """
     # 状態: 1=ACKのLOW待ち, 2=ACKのHIGH待ち, 3=ビットのLOW待ち,
     #       4=ビットのHIGH待ち(区間開始点), 5=区間終了(次のLOW)待ち
@@ -52,26 +61,46 @@ def _decode_dht22_edges(edges):
             bit_durations.append(edge["timestamp_ns"] - high_start_ts)
             state = 4
 
-    if len(bit_durations) != 40:
+    # 40ビット目の終端エッジが欠落したケース（上記docstring参照）。
+    # チェックサムから逆算するため、ここでは39ビットのまま処理を続ける。
+    last_bit_missing = len(bit_durations) == 39 and state == 5
+    if len(bit_durations) != 40 and not last_bit_missing:
         raise ValueError("データ欠損")
 
     # 長いパルス(1)と短いパルス(0)の閾値を計算
     threshold = min(bit_durations) + (max(bit_durations) - min(bit_durations)) / 2
     bits = [1 if d > threshold else 0 for d in bit_durations]
 
-    # ビット列を5つのバイトデータに変換
-    the_bytes = []
-    byte_val = 0
-    for i, bit in enumerate(bits):
-        byte_val = (byte_val << 1) | bit
-        if (i + 1) % 8 == 0:
-            the_bytes.append(byte_val)
-            byte_val = 0
+    if last_bit_missing:
+        # チェックサムバイトの上位7ビットまでは既に揃っているので、
+        # 残りのバイト0〜3から計算した期待チェックサムと矛盾しないよう
+        # 最下位1ビットを一意に確定させる。
+        the_bytes = []
+        byte_val = 0
+        for i, bit in enumerate(bits):
+            byte_val = (byte_val << 1) | bit
+            if (i + 1) % 8 == 0:
+                the_bytes.append(byte_val)
+                byte_val = 0
+        checksum_high7 = byte_val  # 5バイト目未満の端数(=チェックサムの上位7ビット)
+        expected_checksum = sum(the_bytes[0:4]) & 0xFF
+        if expected_checksum >> 1 != checksum_high7:
+            raise ValueError("CRCエラー")
+        the_bytes.append(expected_checksum)
+    else:
+        # ビット列を5つのバイトデータに変換
+        the_bytes = []
+        byte_val = 0
+        for i, bit in enumerate(bits):
+            byte_val = (byte_val << 1) | bit
+            if (i + 1) % 8 == 0:
+                the_bytes.append(byte_val)
+                byte_val = 0
 
-    # チェックサムの検証 (最初の4バイトの合計の下位8ビットと、5バイト目が一致するか)
-    checksum = sum(the_bytes[0:4]) & 0xFF
-    if the_bytes[4] != checksum:
-        raise ValueError("CRCエラー")
+        # チェックサムの検証 (最初の4バイトの合計の下位8ビットと、5バイト目が一致するか)
+        checksum = sum(the_bytes[0:4]) & 0xFF
+        if the_bytes[4] != checksum:
+            raise ValueError("CRCエラー")
 
     # バイトデータを温湿度に変換
     humidity = ((the_bytes[0] << 8) + the_bytes[1]) / 10.0
@@ -156,14 +185,17 @@ class RobustDHT22:
         温湿度に変換する。スタート信号（LOW 18ms→解放）とエッジ監視の
         両方を1回のリクエストでpi4gpiod側にまとめて行わせる。
 
-        ACK(2エッジ)＋40ビット(80エッジ)＝82に、スタート信号解放時の
-        エッジ（検出される場合とされない場合がある）分の余裕を持たせて
-        max_events=90とする。
+        実機検証（2026-07-13、pi4gpioリポジトリのVERIFICATION_LOG.md）で、
+        カーネルのGPIO v2エッジ割り込み経由（`gpio_watch_edges`、Tier 2）
+        だと、DHT22の電圧遷移が緩やかな一部エッジを取りこぼすことが
+        判明した。`gpio_watch_edges_polled`（daemon側で`/dev/gpiomem`を
+        高速busy-loopポーリングするTier 1相当の代替経路）の方が実機での
+        成功率が高かったため、こちらを使う。戻り値の形式は同一のため
+        `_decode_dht22_edges`はそのまま使い回せる。
         """
-        edges = self._client.gpio_watch_edges(
+        edges = self._client.gpio_watch_edges_polled(
             pin=self.pin,
-            max_events=90,
-            timeout_ms=1000,
+            budget_ms=15,
             pre_pulse_low_ms=18,
             pull="up",
         )
