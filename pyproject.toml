@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rpi-sensor-lib"
-version = "0.1.1"
+version = "0.1.2"
 description = "Raspberry Pi用の各種センサー読み取りライブラリ"
 authors = [{name = "Kazuki Kumahata"}]
 readme = "README.md"
