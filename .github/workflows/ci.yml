@@ -1,23 +1,32 @@
 name: CI
 on: [push, pull_request]
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install build & lint tools
-        run: pip install build flake8
+      - name: Install development tools
+        run: pip install -e ".[dev]"
       - name: Syntax check (compile)
         run: python -m compileall rpi_sensors
+      - name: Format check
+        run: black --check rpi_sensors tests tools
       - name: Lint
-        run: flake8 rpi_sensors --select=E9,F63,F7,F82 --show-source
+        run: flake8 rpi_sensors tests tools --max-line-length=100
+      - name: Type check
+        run: mypy rpi_sensors --ignore-missing-imports --check-untyped-defs
       - name: Run tests
         run: python -m unittest discover -s tests -v
       - name: Build package
         run: python -m build
+      - name: Check package metadata
+        run: twine check dist/*

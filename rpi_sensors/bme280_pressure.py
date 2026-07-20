@@ -3,10 +3,10 @@
 __author__ = "tk220424"
 
 import time
-
-import bme280
+from typing import Any, Optional, Tuple
 
 from . import _pi4gpio_backend
+from ._validation import require_int_range, require_non_negative_int
 
 
 class BME280InitializationError(RuntimeError):
@@ -38,45 +38,57 @@ class BME280Sensor:
     BME280の一時的な初期化失敗だけで全センサーの起動が巻き添えで
     止まるのは望ましくないため。
     """
-    def __init__(self, port=1, address=0x76):
-        self.port = port
-        self.address = address
-        self.backend = _pi4gpio_backend.get_backend()
-        self.bus = None
-        self.calibration_params = None
-        self._open_bus()
-        self._load_calibration()
 
-    def _open_bus(self):
+    def __init__(self, port: int = 1, address: int = 0x76) -> None:
+        self.port = require_non_negative_int("port", port)
+        self.address = require_int_range("address", address, 0x76, 0x77)
+        self.backend = _pi4gpio_backend.get_backend()
+        self.bus: Optional[Any] = None
+        self.calibration_params: Optional[Any] = None
+        self._last_initialization_error: Optional[BaseException] = None
+        try:
+            self._initialize()
+        except Exception as exc:
+            # A temporarily unavailable I2C device must not prevent other
+            # independent sensors in the process from starting.
+            self._last_initialization_error = exc
+            self._close_bus()
+
+    def _open_bus(self) -> None:
         """I2Cバスを(再)接続する。既存のバスがあれば先に閉じる。"""
-        if self.bus is not None:
-            try:
-                self.bus.close()
-            except Exception:
-                pass
+        self._close_bus()
 
         if self.backend == "pi4gpio":
             client = _pi4gpio_backend.get_pi4gpio_client()
             self.bus = _pi4gpio_backend.Pi4gpioSMBusShim(client, self.port)
         else:
             import smbus2
+
             self.bus = smbus2.SMBus(self.port)
 
-    def _load_calibration(self):
-        """キャリブレーションデータを読み込む。
+    def _close_bus(self) -> None:
+        bus = self.bus
+        self.bus = None
+        if bus is not None:
+            try:
+                bus.close()
+            except Exception:
+                pass
 
-        失敗しても例外は送出せず、calibration_paramsをNoneのままにする
-        (read()側での再試行に委ねるため)。ここで例外を投げてコンストラクタ
-        全体を失敗させると、他の7種のセンサーの初期化・送信まで巻き添えで
-        止まってしまう。
-        """
+    def _initialize(self) -> None:
+        """Open the bus and load calibration data as one recoverable step."""
+        import bme280
+
+        self._open_bus()
         try:
             self.calibration_params = bme280.load_calibration_params(self.bus, self.address)
-        except Exception as e:
+        except Exception:
             self.calibration_params = None
-            print(f"BME280の初期化に失敗しました。アドレス(0x76 or 0x77)と配線を確認してください: {e}")
+            self._close_bus()
+            raise
+        self._last_initialization_error = None
 
-    def read(self):
+    def read(self) -> Tuple[float, float, float]:
         """
         温度(℃)、湿度(%)、気圧(hPa)のタプルを返す。
 
@@ -88,22 +100,28 @@ class BME280Sensor:
         呼び出し側の失敗センサー一覧に正しく計上されるようになる)。
         """
         if self.calibration_params is None:
-            self._open_bus()
-            self._load_calibration()
-            if self.calibration_params is None:
+            try:
+                self._initialize()
+            except Exception as exc:
+                self._last_initialization_error = exc
                 raise BME280InitializationError(
-                    "BME280のキャリブレーションデータが読み込めていません"
-                    "（配線・電源、またはI2Cバスの状態を確認してください）")
+                    "BME280を初期化できませんでした"
+                    "（配線・電源、I2Cアドレス、バスの状態を確認してください）"
+                ) from exc
+
+        import bme280
 
         try:
             data = bme280.sample(self.bus, self.address, self.calibration_params)
-        except Exception:
+        except Exception as exc:
             # 読み取り自体が失敗した場合も、次回read()時に再初期化を試みる
             self.calibration_params = None
+            self._last_initialization_error = exc
+            self._close_bus()
             raise
         return data.temperature, data.humidity, data.pressure
 
-    def __enter__(self):
+    def __enter__(self) -> "BME280Sensor":
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -113,11 +131,11 @@ class BME280Sensor:
     def close(self) -> None:
         # Pi4gpioSMBusShimもsmbus2.SMBusと同じclose()インターフェースを
         # 持つため、backendで分岐する必要が無い。
-        if self.bus is not None:
-            self.bus.close()
+        self.calibration_params = None
+        self._close_bus()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("BME280 センサテスト (Ctrl+Cで終了)")
     sensor = BME280Sensor(address=0x76)  # モジュールによっては 0x77 の場合あり
 

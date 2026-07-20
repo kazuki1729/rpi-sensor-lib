@@ -12,23 +12,30 @@ pi4gpioバックエンドは明示的にオプトインした場合のみ`pi4gpi
 pi4gpio_clientへの依存を強制しないため。
 """
 
+import atexit
 import os
+from threading import Lock
+from typing import Any, List
 
 _BACKEND_ENV_VAR = "RPI_SENSOR_BACKEND"
 
 _shared_client = None
+_shared_client_lock = Lock()
 
 
 def get_backend() -> str:
-    """"direct"または"pi4gpio"を返す。デフォルトは"direct"。"""
-    return os.environ.get(_BACKEND_ENV_VAR, "direct")
+    """ "direct"または"pi4gpio"を返す。デフォルトは"direct"。"""
+    backend = os.environ.get(_BACKEND_ENV_VAR, "direct").strip().lower()
+    if backend not in {"direct", "pi4gpio"}:
+        raise ValueError(f"{_BACKEND_ENV_VAR} must be 'direct' or 'pi4gpio', got {backend!r}")
+    return backend
 
 
 def is_pi4gpio_backend() -> bool:
     return get_backend() == "pi4gpio"
 
 
-def get_pi4gpio_client():
+def get_pi4gpio_client() -> Any:
     """プロセス内で1つの接続を使い回す。
 
     pi4gpiodのLockTableは接続単位でロックを保持するため、センサー
@@ -39,20 +46,39 @@ def get_pi4gpio_client():
     1つの共有接続を使うことで、これを防ぐ。
     """
     global _shared_client
-    if _shared_client is None:
-        try:
-            from pi4gpio_client import DEFAULT_SOCKET_PATH, Pi4gpioClient
-        except ImportError as e:
-            raise ImportError(
-                "RPI_SENSOR_BACKEND=pi4gpioを使うにはpi4gpio_clientが必要です。"
-                "pip install -e <pi4gpioリポジトリ>/clients/python でインストールしてください。"
-            ) from e
-        # デーモン起動時と同じ環境変数名。root権限なしで検証する場合など、
-        # /run/pi4gpio以外のソケットパスを使う開発・検証用途に対応する。
-        socket_path = os.environ.get("PI4GPIO_SOCKET_PATH", DEFAULT_SOCKET_PATH)
-        _shared_client = Pi4gpioClient(socket_path=socket_path)
-        _shared_client.connect()
+    with _shared_client_lock:
+        if _shared_client is None:
+            try:
+                from pi4gpio_client import DEFAULT_SOCKET_PATH, Pi4gpioClient
+            except ImportError as e:
+                raise ImportError(
+                    "RPI_SENSOR_BACKEND=pi4gpioを使うにはpi4gpio_clientが必要です。"
+                    "pip install -e <pi4gpioリポジトリ>/clients/python "
+                    "でインストールしてください。"
+                ) from e
+            # デーモン起動時と同じ環境変数名。root権限なしで検証する場合など、
+            # /run/pi4gpio以外のソケットパスを使う開発・検証用途に対応する。
+            socket_path = os.environ.get("PI4GPIO_SOCKET_PATH", DEFAULT_SOCKET_PATH)
+            client = Pi4gpioClient(socket_path=socket_path)
+            client.connect()
+            _shared_client = client
     return _shared_client
+
+
+def close_pi4gpio_client() -> None:
+    """Close the process-wide client when the interpreter exits."""
+    global _shared_client
+    with _shared_client_lock:
+        client = _shared_client
+        _shared_client = None
+    if client is None:
+        return
+    close = getattr(client, "close", None) or getattr(client, "disconnect", None)
+    if close is not None:
+        close()
+
+
+atexit.register(close_pi4gpio_client)
 
 
 class Pi4gpioSMBusShim:
@@ -90,7 +116,7 @@ class Pi4gpioSMBusShim:
         解放し、プロセス共有の`Pi4gpioClient`接続自体は閉じない。"""
         self._client.i2c_release(self._bus)
 
-    def read_i2c_block_data(self, i2c_addr: int, register: int, length: int) -> list:
+    def read_i2c_block_data(self, i2c_addr: int, register: int, length: int) -> List[int]:
         data = self._client.i2c_write_read(self._bus, i2c_addr, bytes([register]), length)
         return list(data)
 
@@ -110,7 +136,7 @@ class Pi4gpioSpiTransferShim:
         self._bus = bus
         self._chip_select = chip_select
 
-    def xfer2(self, data) -> list:
+    def xfer2(self, data: Any) -> List[int]:
         result = self._client.spi_transfer(self._bus, self._chip_select, bytes(data))
         return list(result)
 
