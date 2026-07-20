@@ -3,8 +3,16 @@
 __author__ = "tk220424"
 
 import time
+from threading import RLock
+from typing import Tuple
 
 from . import _pi4gpio_backend
+from ._validation import require_non_negative_int, require_non_negative_number
+
+
+class TactileButtonInitializationError(RuntimeError):
+    """Raised when the GPIO line cannot be prepared for button input."""
+
 
 class TactileButton:
     """
@@ -15,13 +23,16 @@ class TactileButton:
     pi4gpioはpi4gpiodデーモン経由（pi4gpioプロジェクトのMIGRATION_PLAN.md
     参照）。
     """
+
     _handle = None
     _use_count = 0
+    _resource_lock = RLock()
 
-    def __init__(self, pin, debounce_time=0.05):
-        self.pin = pin
-        self.debounce_time = debounce_time
+    def __init__(self, pin: int, debounce_time: float = 0.05) -> None:
+        self.pin = require_non_negative_int("pin", pin)
+        self.debounce_time = require_non_negative_number("debounce_time", debounce_time)
         self.backend = _pi4gpio_backend.get_backend()
+        self._closed = False
 
         # 状態記憶用の変数
         self.last_state = False
@@ -35,21 +46,29 @@ class TactileButton:
             return
 
         import lgpio
+
         self._lgpio = lgpio
 
-        if TactileButton._handle is None:
-            TactileButton._handle = lgpio.gpiochip_open(0)
-        TactileButton._use_count += 1
-
-        try:
-            lgpio.gpio_claim_input(
-                TactileButton._handle,
-                self.pin,
-                lgpio.SET_PULL_UP
-            )
-        except Exception as e:
-            print(f"GPIO {self.pin} の初期化に失敗しました: {e}")
-            print("[Error: tk220424] Invalid channel specified.")
+        with TactileButton._resource_lock:
+            opened_here = False
+            try:
+                if TactileButton._handle is None:
+                    TactileButton._handle = lgpio.gpiochip_open(0)
+                    opened_here = True
+                lgpio.gpio_claim_input(
+                    TactileButton._handle,
+                    self.pin,
+                    lgpio.SET_PULL_UP,
+                )
+            except Exception as exc:
+                if opened_here and TactileButton._handle is not None:
+                    lgpio.gpiochip_close(TactileButton._handle)
+                    TactileButton._handle = None
+                self._closed = True
+                raise TactileButtonInitializationError(
+                    f"failed to initialize GPIO {self.pin} as an input"
+                ) from exc
+            TactileButton._use_count += 1
 
     def _read_pressed(self) -> bool:
         """物理的に押されていればTrueを返す（プルアップ＋押下時にGNDへ落ちる配線を想定）。"""
@@ -57,20 +76,25 @@ class TactileButton:
             return not self._client.gpio_read(self.pin, pull="up")
         return self._lgpio.gpio_read(TactileButton._handle, self.pin) == 0
 
-    def update(self):
+    def update(self) -> Tuple[bool, float, float]:
         """
         メインループ内で毎回呼び出して、ボタンの全ステータスを取得する関数。
         戻り値のタプル: (just_pressed, released_duration, current_held_time)
         """
+        if self._closed:
+            raise RuntimeError("button is closed")
         current_state = self._read_pressed()
-        current_time = time.time()
+        current_time = time.monotonic()
 
         just_pressed = False
         released_duration = 0.0
         current_held_time = 0.0
 
         # 状態が変化した時（かつチャタリング回避時間を超えている場合）
-        if current_state != self.last_state and (current_time - self.last_toggle_time) > self.debounce_time:
+        if (
+            current_state != self.last_state
+            and (current_time - self.last_toggle_time) > self.debounce_time
+        ):
             self.last_toggle_time = current_time
             self.last_state = current_state
 
@@ -89,27 +113,38 @@ class TactileButton:
 
         return just_pressed, released_duration, current_held_time
 
-    def __enter__(self):
+    def __enter__(self) -> "TactileButton":
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
 
-    def close(self):
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         if self.backend == "pi4gpio":
             self._client.gpio_release(self.pin)
             return
 
-        TactileButton._use_count -= 1
-        if TactileButton._use_count <= 0 and TactileButton._handle is not None:
-            self._lgpio.gpiochip_close(TactileButton._handle)
-            TactileButton._handle = None
+        with TactileButton._resource_lock:
+            handle = TactileButton._handle
+            if handle is None:
+                return
+            gpio_free = getattr(self._lgpio, "gpio_free", None)
+            if gpio_free is not None:
+                gpio_free(handle, self.pin)
+            TactileButton._use_count -= 1
+            if TactileButton._use_count == 0:
+                self._lgpio.gpiochip_close(handle)
+                TactileButton._handle = None
+
 
 # ---------------------------------------------------------
 # 単体テスト用ブロック
 # ---------------------------------------------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     TEST_PIN = 17
     print(f"GPIO {TEST_PIN} 長押しテスト (Ctrl+Cで終了)")
     btn = TactileButton(pin=TEST_PIN)
@@ -128,7 +163,7 @@ if __name__ == '__main__':
                 print(f"   ⏳ 押しています... {held_time:.1f}秒", end="\r")
                 if held_time >= 3.0:
                     print("\n💥 3秒長押し発動！ (リセットします)")
-                    btn.press_start_time = time.time() # カウントをリセット
+                    btn.press_start_time = time.monotonic()  # カウントをリセット
 
             # ③ 離した瞬間（合計で何秒押されていたかが分かる）
             if released_duration > 0:

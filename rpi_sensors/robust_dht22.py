@@ -4,15 +4,24 @@
 __author__ = "tk220424"
 
 import time
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 from . import _pi4gpio_backend
+from ._validation import (
+    require_non_negative_int,
+    require_positive_number,
+)
+
 
 class DHT22ReadError(Exception):
     """DHT22の読み取りが規定回数失敗した場合に発生する例外"""
+
     pass
 
 
-def _decode_dht22_edges(edges):
+def _decode_dht22_edges(
+    edges: Sequence[Mapping[str, Any]],
+) -> Tuple[float, float]:
     """pi4gpioの`gpio_watch_edges()`が返すエッジ列（タイムスタンプ昇順の
     ``[{"timestamp_ns": int, "rising": bool}, ...]``）から、DHT22の
     温湿度をデコードする。
@@ -107,8 +116,8 @@ def _decode_dht22_edges(edges):
 
     temp_raw = (the_bytes[2] << 8) + the_bytes[3]
     temperature = temp_raw / 10.0
-    if temp_raw & 0x8000: # 最上位ビットが1ならマイナス温度
-        temperature = - (temp_raw & 0x7FFF) / 10.0
+    if temp_raw & 0x8000:  # 最上位ビットが1ならマイナス温度
+        temperature = -(temp_raw & 0x7FFF) / 10.0
 
     return temperature, humidity
 
@@ -125,38 +134,53 @@ class RobustDHT22:
     エッジ検出）経由——後者はpi4gpioを作った本来の動機そのもの
     （FEATURE_PRIORITY.md Tier 2参照）。
     """
-    def __init__(self, pin=26, max_retries=5, read_interval=2.0):
-        self.pin = pin
-        self.max_retries = max_retries
-        self.read_interval = read_interval  # DHT22は仕様上2秒以上の間隔が必要
+
+    def __init__(
+        self,
+        pin: int = 26,
+        max_retries: int = 5,
+        read_interval: float = 2.0,
+    ) -> None:
+        self.pin = require_non_negative_int("pin", pin)
+        self.max_retries = require_non_negative_int("max_retries", max_retries)
+        if self.max_retries == 0:
+            raise ValueError("max_retries must be greater than zero")
+        self.read_interval = require_positive_number("read_interval", read_interval)
+        if self.read_interval < 2.0:
+            raise ValueError("read_interval must be at least 2.0 seconds")
         self.backend = _pi4gpio_backend.get_backend()
+        self._closed = False
 
         # キャッシュ用の変数
         self._last_read_time = 0.0
-        self._cached_temp = None
-        self._cached_hum = None
+        self._cached_temp: Optional[float] = None
+        self._cached_hum: Optional[float] = None
 
         if self.backend == "pi4gpio":
             self._client = _pi4gpio_backend.get_pi4gpio_client()
             return
 
         import lgpio
+
         self._lgpio = lgpio
         self._handle = lgpio.gpiochip_open(0)
 
-    def read(self):
+    def read(self) -> Tuple[float, float]:
         """
         温湿度を取得します。
         前回の取得から規定秒数以内の場合は、キャッシュした前回の値を返します。
         """
-        current_time = time.time()
+        if self._closed:
+            raise RuntimeError("DHT22 sensor is closed")
+        current_time = time.monotonic()
 
         # 1. キャッシュの確認（2秒以内の連続アクセスを防止）
         if (current_time - self._last_read_time) < self.read_interval:
-            if self._cached_temp is not None:
+            if self._cached_temp is not None and self._cached_hum is not None:
                 return self._cached_temp, self._cached_hum
 
         # 2. 自動リトライループ
+        last_error: BaseException = RuntimeError("no read attempt was made")
         for attempt in range(self.max_retries):
             try:
                 temp, hum = self._read_raw()
@@ -164,23 +188,26 @@ class RobustDHT22:
                 # 取得成功時の処理
                 self._cached_temp = temp
                 self._cached_hum = hum
-                self._last_read_time = time.time()
+                self._last_read_time = time.monotonic()
                 return temp, hum
 
-            except Exception:
+            except Exception as exc:
+                last_error = exc
                 # 失敗した場合は仕様通り2秒待ってから再トライ
                 if attempt < self.max_retries - 1:
                     time.sleep(self.read_interval)
 
         # 規定回数すべて失敗した場合
-        raise DHT22ReadError(f"GPIO{self.pin}のDHT22読み取りに{self.max_retries}回失敗しました。")
+        raise DHT22ReadError(
+            f"GPIO{self.pin}のDHT22読み取りに{self.max_retries}回失敗しました。"
+        ) from last_error
 
-    def _read_raw(self):
+    def _read_raw(self) -> Tuple[float, float]:
         if self.backend == "pi4gpio":
             return self._read_raw_pi4gpio()
         return self._read_raw_direct()
 
-    def _read_raw_pi4gpio(self):
+    def _read_raw_pi4gpio(self) -> Tuple[float, float]:
         """pi4gpiod経由で生の波形（タイムスタンプ付きエッジ列）を取得し、
         温湿度に変換する。スタート信号（LOW 18ms→解放）とエッジ監視の
         両方を1回のリクエストでpi4gpiod側にまとめて行わせる。
@@ -201,7 +228,7 @@ class RobustDHT22:
         )
         return _decode_dht22_edges(edges)
 
-    def _read_raw_direct(self):
+    def _read_raw_direct(self) -> Tuple[float, float]:
         """lgpioを利用して生の波形を読み取り、温湿度に変換する内部関数"""
         lgpio = self._lgpio
         lgpio.gpio_claim_output(self._handle, self.pin)
@@ -279,12 +306,12 @@ class RobustDHT22:
 
         temp_raw = (the_bytes[2] << 8) + the_bytes[3]
         temperature = temp_raw / 10.0
-        if temp_raw & 0x8000: # 最上位ビットが1ならマイナス温度
-            temperature = - (temp_raw & 0x7FFF) / 10.0
+        if temp_raw & 0x8000:  # 最上位ビットが1ならマイナス温度
+            temperature = -(temp_raw & 0x7FFF) / 10.0
 
         return temperature, humidity
 
-    def __enter__(self):
+    def __enter__(self) -> "RobustDHT22":
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -293,6 +320,9 @@ class RobustDHT22:
 
     def close(self) -> None:
         """リソースの解放"""
+        if self._closed:
+            return
+        self._closed = True
         if self.backend == "pi4gpio":
             self._client.gpio_release(self.pin)
             return
@@ -304,7 +334,7 @@ class RobustDHT22:
 # ---------------------------------------------------------
 # 単体テスト用ブロック
 # ---------------------------------------------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     # GPIO 26 でテスト
     TEST_PIN = 26
 
